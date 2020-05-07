@@ -88,8 +88,7 @@ struct _MetaSeatNative
   ClutterInputDevice *core_pointer;
   ClutterInputDevice *core_keyboard;
 
-  MetaTouchState **touch_states;
-  int n_alloc_touch_states;
+  GHashTable *touch_states;
 
   struct xkb_state *xkb;
   xkb_led_index_t caps_lock_led;
@@ -205,12 +204,12 @@ ClutterInputDevice * meta_seat_native_get_device (MetaSeatNative *seat,
                                                   int             id);
 
 MetaTouchState * meta_seat_native_acquire_touch_state (MetaSeatNative *seat,
-                                                       int             device_slot);
+                                                       int             seat_slot);
 MetaTouchState * meta_seat_native_lookup_touch_state  (MetaSeatNative *seat,
-                                                       int             device_slot);
+                                                       int             seat_slot);
 
 void meta_seat_native_release_touch_state (MetaSeatNative *seat,
-                                           MetaTouchState *touch_state);
+                                           int             seat_slot);
 
 void meta_seat_native_set_stage (MetaSeatNative *seat,
                                  ClutterStage   *stage);
