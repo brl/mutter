@@ -31,8 +31,6 @@
 
 #include "backends/meta-cursor-tracker-private.h"
 
-#include <gdk/gdk.h>
-#include <gdk/gdkx.h>
 #include <string.h>
 
 #include "backends/meta-backend-private.h"
@@ -464,29 +462,11 @@ meta_cursor_tracker_update_position (MetaCursorTracker *tracker,
     g_signal_emit (tracker, signals[CURSOR_MOVED], 0, new_x, new_y);
 }
 
-static void
-get_pointer_position_gdk (int         *x,
-                          int         *y,
-                          int         *mods)
-{
-  GdkSeat *gseat;
-  GdkDevice *gdevice;
-  GdkScreen *gscreen;
-
-  gseat = gdk_display_get_default_seat (gdk_display_get_default ());
-  gdevice = gdk_seat_get_pointer (gseat);
-
-  gdk_device_get_position (gdevice, &gscreen, x, y);
-  if (mods)
-    gdk_device_get_state (gdevice,
-                          gdk_screen_get_root_window (gscreen),
-                          NULL, (GdkModifierType*)mods);
-}
-
-static void
-get_pointer_position_clutter (int         *x,
-                              int         *y,
-                              int         *mods)
+void
+meta_cursor_tracker_get_pointer (MetaCursorTracker   *tracker,
+                                 int                 *x,
+                                 int                 *y,
+                                 ClutterModifierType *mods)
 {
   ClutterSeat *seat;
   ClutterInputDevice *cdevice;
@@ -502,23 +482,6 @@ get_pointer_position_clutter (int         *x,
     *y = point.y;
   if (mods)
     *mods = clutter_input_device_get_modifier_state (cdevice);
-}
-
-void
-meta_cursor_tracker_get_pointer (MetaCursorTracker   *tracker,
-                                 int                 *x,
-                                 int                 *y,
-                                 ClutterModifierType *mods)
-{
-  /* We can't use the clutter interface when not running as a wayland compositor,
-     because we need to query the server, rather than using the last cached value.
-     OTOH, on wayland we can't use GDK, because that only sees the events
-     we forward to xwayland.
-  */
-  if (meta_is_wayland_compositor ())
-    get_pointer_position_clutter (x, y, (int*)mods);
-  else
-    get_pointer_position_gdk (x, y, (int*)mods);
 }
 
 void
