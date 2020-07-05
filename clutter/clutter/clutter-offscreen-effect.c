@@ -484,6 +484,30 @@ clutter_offscreen_effect_post_paint (ClutterEffect       *effect,
 }
 
 static void
+clutter_offscreen_effect_paint_node (ClutterEffect           *effect,
+                                     ClutterPaintNode        *node,
+                                     ClutterPaintContext     *paint_context,
+                                     ClutterEffectPaintFlags  flags)
+{
+  ClutterOffscreenEffect *offscreen_effect = CLUTTER_OFFSCREEN_EFFECT (effect);
+  ClutterOffscreenEffectPrivate *priv = offscreen_effect->priv;
+  ClutterPaintNode *layer_node;
+  ClutterPaintNode *actor_node;
+
+  layer_node = clutter_layer_node_new_with_framebuffer (priv->offscreen,
+                                                        priv->pipeline,
+                                                        255);
+  clutter_paint_node_set_static_name (layer_node,
+                                      "ClutterOffscreenEffect (actor offscreen)");
+  clutter_paint_node_add_child (node, layer_node);
+  clutter_paint_node_unref (layer_node);
+
+  actor_node = clutter_actor_node_new (priv->actor, 255);
+  clutter_paint_node_add_child (layer_node, actor_node);
+  clutter_paint_node_unref (actor_node);
+}
+
+static void
 clutter_offscreen_effect_paint (ClutterEffect           *effect,
                                 ClutterPaintContext     *paint_context,
                                 ClutterEffectPaintFlags  flags)
@@ -556,6 +580,7 @@ clutter_offscreen_effect_class_init (ClutterOffscreenEffectClass *klass)
   effect_class->pre_paint = clutter_offscreen_effect_pre_paint;
   effect_class->post_paint = clutter_offscreen_effect_post_paint;
   effect_class->paint = clutter_offscreen_effect_paint;
+  effect_class->paint_node = clutter_offscreen_effect_paint_node;
 
   gobject_class->finalize = clutter_offscreen_effect_finalize;
 }
