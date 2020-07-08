@@ -105,6 +105,8 @@ struct _MetaBackendClass
   void (* set_numlock) (MetaBackend *backend,
                         gboolean     numlock_state);
 
+  void (* set_pointer_constraint) (MetaBackend           *backend,
+                                   MetaPointerConstraint *constraint);
 };
 
 void meta_init_backend (GType backend_gtype);
