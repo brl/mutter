@@ -1149,24 +1149,14 @@ _clutter_paint_node_create (GType gtype)
   return (gpointer) g_type_create_instance (gtype);
 }
 
-static ClutterPaintNode *
-clutter_paint_node_get_root (ClutterPaintNode *node)
-{
-  ClutterPaintNode *iter;
-
-  iter = node;
-  while (iter != NULL && iter->parent != NULL)
-    iter = iter->parent;
-
-  return iter;
-}
-
 /**
  * clutter_paint_node_get_framebuffer:
  * @node: a #ClutterPaintNode
  *
  * Retrieves the #CoglFramebuffer that @node will draw
- * into, if it the root node has a custom framebuffer set.
+ * into. If @node doesn't specify a custom framebuffer,
+ * the first parent node with a custom framebuffer will
+ * be used.
  *
  * Returns: (transfer none): a #CoglFramebuffer or %NULL if no custom one is
  * set.
@@ -1174,12 +1164,19 @@ clutter_paint_node_get_root (ClutterPaintNode *node)
 CoglFramebuffer *
 clutter_paint_node_get_framebuffer (ClutterPaintNode *node)
 {
-  ClutterPaintNode *root = clutter_paint_node_get_root (node);
   ClutterPaintNodeClass *klass;
+  ClutterPaintNode *iter;
 
-  klass = CLUTTER_PAINT_NODE_GET_CLASS (root);
-  if (klass->get_framebuffer != NULL)
-    return klass->get_framebuffer (root);
-  else
-    return NULL;
+  iter = node;
+  while (iter != NULL && iter->parent != NULL)
+    {
+      klass = CLUTTER_PAINT_NODE_GET_CLASS (iter);
+
+      if (klass->get_framebuffer != NULL)
+        return klass->get_framebuffer (iter);
+
+      iter = iter->parent;
+    }
+
+  return NULL;
 }
