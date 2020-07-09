@@ -199,9 +199,6 @@ struct _MetaDisplay
 
   MetaKeyBindingManager key_binding_manager;
 
-  /* Monitor cache */
-  unsigned int monitor_cache_invalidated : 1;
-
   /* Opening the display */
   unsigned int display_opening : 1;
 
