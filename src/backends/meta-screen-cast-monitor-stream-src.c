@@ -170,9 +170,11 @@ is_cursor_in_stream (MetaScreenCastMonitorStreamSrc *monitor_src)
     }
   else
     {
+      MetaCursorTracker *cursor_tracker =
+        meta_backend_get_cursor_tracker (backend);
       graphene_point_t cursor_position;
 
-      cursor_position = meta_cursor_renderer_get_position (cursor_renderer);
+      meta_cursor_tracker_get_pointer (cursor_tracker, &cursor_position, NULL);
       return graphene_rect_contains_point (&logical_monitor_rect,
                                            &cursor_position);
     }
@@ -596,6 +598,8 @@ meta_screen_cast_monitor_stream_src_set_cursor_metadata (MetaScreenCastStreamSrc
   MetaBackend *backend = get_backend (monitor_src);
   MetaCursorRenderer *cursor_renderer =
     meta_backend_get_cursor_renderer (backend);
+  MetaCursorTracker *cursor_tracker =
+    meta_backend_get_cursor_tracker (backend);
   MetaCursorSprite *cursor_sprite;
   MetaMonitor *monitor;
   MetaLogicalMonitor *logical_monitor;
@@ -625,7 +629,7 @@ meta_screen_cast_monitor_stream_src_set_cursor_metadata (MetaScreenCastStreamSrc
   else
     view_scale = 1.0;
 
-  cursor_position = meta_cursor_renderer_get_position (cursor_renderer);
+  meta_cursor_tracker_get_pointer (cursor_tracker, &cursor_position, NULL);
   cursor_position.x -= logical_monitor_rect.origin.x;
   cursor_position.y -= logical_monitor_rect.origin.y;
   cursor_position.x *= view_scale;
