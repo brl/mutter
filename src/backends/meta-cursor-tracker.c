@@ -457,24 +457,16 @@ meta_cursor_tracker_update_position (MetaCursorTracker *tracker,
 
 void
 meta_cursor_tracker_get_pointer (MetaCursorTracker   *tracker,
-                                 int                 *x,
-                                 int                 *y,
+                                 graphene_point_t    *coords,
                                  ClutterModifierType *mods)
 {
   ClutterSeat *seat;
   ClutterInputDevice *cdevice;
-  graphene_point_t point;
 
   seat = clutter_backend_get_default_seat (clutter_get_default_backend ());
   cdevice = clutter_seat_get_pointer (seat);
 
-  clutter_input_device_get_coords (cdevice, NULL, &point);
-  if (x)
-    *x = point.x;
-  if (y)
-    *y = point.y;
-  if (mods)
-    *mods = clutter_input_device_get_modifier_state (cdevice);
+  clutter_seat_query_state (seat, cdevice, NULL, coords, mods);
 }
 
 void
