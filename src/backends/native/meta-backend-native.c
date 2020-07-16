@@ -107,6 +107,21 @@ meta_backend_native_create_clutter_backend (MetaBackend *backend)
 }
 
 static void
+update_viewports (MetaBackend *backend)
+{
+  MetaMonitorManager *monitor_manager =
+    meta_backend_get_monitor_manager (backend);
+  ClutterBackend *clutter_backend = meta_backend_get_clutter_backend (backend);
+  MetaSeatNative *seat =
+    META_SEAT_NATIVE (clutter_backend_get_default_seat (clutter_backend));
+  MetaViewportInfo *viewports;
+
+  viewports = meta_monitor_manager_get_viewports (monitor_manager);
+  meta_seat_native_set_viewports (seat, viewports);
+  g_object_unref (viewports);
+}
+
+static void
 meta_backend_native_post_init (MetaBackend *backend)
 {
   MetaSettings *settings = meta_backend_get_settings (backend);
@@ -127,6 +142,8 @@ meta_backend_native_post_init (MetaBackend *backend)
         g_warning ("Failed to set RT scheduler: %m");
     }
 
+  update_viewports (backend);
+
 #ifdef HAVE_WAYLAND
   meta_backend_init_wayland (backend);
 #endif
@@ -136,9 +153,15 @@ static MetaMonitorManager *
 meta_backend_native_create_monitor_manager (MetaBackend *backend,
                                             GError     **error)
 {
-  return g_initable_new (META_TYPE_MONITOR_MANAGER_KMS, NULL, error,
-                         "backend", backend,
-                         NULL);
+  MetaMonitorManager *manager;
+
+  manager = g_initable_new (META_TYPE_MONITOR_MANAGER_KMS, NULL, error,
+                            "backend", backend,
+                            NULL);
+  g_signal_connect_swapped (manager, "monitors-changed-internal",
+                            G_CALLBACK (update_viewports), backend);
+
+  return manager;
 }
 
 static MetaCursorRenderer *
