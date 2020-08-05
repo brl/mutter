@@ -2850,24 +2850,6 @@ meta_seat_native_init (MetaSeatNative *seat)
   seat->barrier_manager = meta_barrier_manager_native_new ();
 }
 
-ClutterInputDevice *
-meta_seat_native_get_device (MetaSeatNative *seat,
-                             int             id)
-{
-  ClutterInputDevice *device;
-  GSList *l;
-
-  for (l = seat->devices; l; l = l->next)
-    {
-      device = l->data;
-
-      if (clutter_input_device_get_device_id (device) == id)
-        return device;
-    }
-
-  return NULL;
-}
-
 /**
  * meta_seat_native_set_device_callbacks: (skip)
  * @open_callback: the user replacement for open()
