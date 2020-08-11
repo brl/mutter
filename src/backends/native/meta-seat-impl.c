@@ -1448,7 +1448,7 @@ evdev_add_device (MetaSeatImpl           *seat,
 
   device = meta_input_device_native_new (seat, libinput_device);
 
-  seat->devices = g_slist_prepend (seat->devices, device);
+  seat->devices = g_slist_prepend (seat->devices, g_object_ref (device));
 
   /* Clutter assumes that device types are exclusive in the
    * ClutterInputDevice API */

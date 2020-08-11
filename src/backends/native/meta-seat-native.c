@@ -170,14 +170,6 @@ meta_seat_native_finalize (GObject *object)
   g_clear_object (&seat->core_keyboard);
   g_clear_object (&seat->impl);
 
-  for (iter = seat->devices; iter; iter = g_slist_next (iter))
-    {
-      ClutterInputDevice *device = iter->data;
-
-      g_object_unref (device);
-    }
-  g_slist_free (seat->devices);
-
   g_clear_pointer (&seat->tablet_cursors, g_hash_table_unref);
   g_object_unref (seat->cursor_renderer);
 

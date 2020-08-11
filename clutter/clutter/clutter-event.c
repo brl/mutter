@@ -1165,7 +1165,7 @@ clutter_event_set_device (ClutterEvent       *event,
 
     case CLUTTER_DEVICE_ADDED:
     case CLUTTER_DEVICE_REMOVED:
-      g_set_object (&event->device.device, device);
+      event->device.device = device;
       break;
     }
 }
@@ -1423,9 +1423,6 @@ clutter_event_copy (const ClutterEvent *event)
 
     case CLUTTER_DEVICE_ADDED:
     case CLUTTER_DEVICE_REMOVED:
-      g_set_object (&new_event->device.device, event->device.device);
-      break;
-
     default:
       break;
     }
@@ -1482,7 +1479,6 @@ clutter_event_free (ClutterEvent *event)
           break;
         case CLUTTER_DEVICE_ADDED:
         case CLUTTER_DEVICE_REMOVED:
-          g_clear_object (&event->device.device);
           break;
 
         default:
