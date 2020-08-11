@@ -1504,14 +1504,17 @@ ClutterEvent *
 clutter_event_get (void)
 {
   ClutterMainContext *context = _clutter_context_get_default ();
+  ClutterEvent *event;
 
-  if (context->events_queue == NULL)
-    return NULL;
+  event = g_async_queue_try_pop (context->events_queue);
 
-  if (g_queue_is_empty (context->events_queue))
-    return NULL;
+  return event;
+}
 
-  return g_queue_pop_tail (context->events_queue);
+static gboolean
+spin_context (gpointer data)
+{
+  return G_SOURCE_REMOVE;
 }
 
 void
@@ -1522,9 +1525,6 @@ _clutter_event_push (const ClutterEvent *event,
 
   g_assert (context != NULL);
 
-  if (context->events_queue == NULL)
-    context->events_queue = g_queue_new ();
-
   if (do_copy)
     {
       ClutterEvent *copy;
@@ -1533,7 +1533,8 @@ _clutter_event_push (const ClutterEvent *event,
       event = copy;
     }
 
-  g_queue_push_head (context->events_queue, (gpointer) event);
+  g_async_queue_push (context->events_queue, (gpointer) event);
+  g_idle_add (spin_context, NULL);
 }
 
 /**
@@ -1570,10 +1571,7 @@ clutter_events_pending (void)
 
   g_return_val_if_fail (context != NULL, FALSE);
 
-  if (context->events_queue == NULL)
-    return FALSE;
-
-  return g_queue_is_empty (context->events_queue) == FALSE;
+  return g_async_queue_length (context->events_queue) > 0;
 }
 
 /**
