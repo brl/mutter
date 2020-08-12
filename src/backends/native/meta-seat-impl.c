@@ -118,7 +118,11 @@ enum
 
 static guint signals[N_SIGNALS] = { 0 };
 
-G_DEFINE_TYPE (MetaSeatImpl, meta_seat_impl, G_TYPE_OBJECT)
+static void meta_seat_impl_initable_iface_init (GInitableIface *iface);
+
+G_DEFINE_TYPE_WITH_CODE (MetaSeatImpl, meta_seat_impl, G_TYPE_OBJECT,
+                         G_IMPLEMENT_INTERFACE (G_TYPE_INITABLE,
+                                                meta_seat_impl_initable_iface_init))
 
 static void process_events (MetaSeatImpl *seat);
 void meta_seat_impl_constrain_pointer (MetaSeatImpl       *seat,
@@ -314,6 +318,50 @@ update_button_count (MetaSeatImpl *seat,
     }
 }
 
+typedef struct
+{
+  MetaSeatImpl *seat;
+  guint signal_id;
+  guint arg1;
+  guint arg2;
+} MetaSeatSignalData;
+
+static gboolean
+emit_signal_main (MetaSeatSignalData *data)
+{
+  g_signal_emit (data->seat,
+                 data->signal_id,
+                 0,
+                 data->arg1,
+                 data->arg2);
+  return G_SOURCE_REMOVE;
+}
+
+static void
+emit_signal (MetaSeatImpl *seat,
+             guint         signal_id,
+             guint         arg1,
+             guint         arg2)
+{
+  MetaSeatSignalData *emit_signal_data;
+  GSource *source;
+
+  emit_signal_data = g_new0 (MetaSeatSignalData, 1);
+  emit_signal_data->seat = seat;
+  emit_signal_data->signal_id = signal_id;
+  emit_signal_data->arg1 = arg1;
+  emit_signal_data->arg2 = arg2;
+
+  source = g_idle_source_new ();
+  g_source_set_priority (source, G_PRIORITY_HIGH);
+  g_source_set_callback (source,
+                         (GSourceFunc) emit_signal_main,
+                         emit_signal_data,
+                         g_free);
+
+  g_source_attach (source, seat->caller_context);
+}
+
 void
 meta_seat_impl_notify_key (MetaSeatImpl       *seat,
                            ClutterInputDevice *device,
@@ -364,7 +412,7 @@ meta_seat_impl_notify_key (MetaSeatImpl       *seat,
 
   if (update_keys && (changed_state & XKB_STATE_LEDS))
     {
-      g_signal_emit (seat, signals[MODS_STATE_CHANGED], 0);
+      emit_signal (seat, signals[MODS_STATE_CHANGED], 0, 0);
       meta_seat_impl_sync_leds (seat);
       meta_input_device_native_a11y_maybe_notify_toggle_keys (META_INPUT_DEVICE_NATIVE (seat->core_keyboard));
     }
@@ -874,25 +922,12 @@ meta_seat_impl_notify_touch_event (MetaSeatImpl       *seat,
  * MetaEventSource for reading input devices
  */
 static gboolean
-meta_event_prepare (GSource *source,
-                    gint    *timeout)
-{
-  gboolean retval;
-
-  *timeout = -1;
-  retval = clutter_events_pending ();
-
-  return retval;
-}
-
-static gboolean
 meta_event_check (GSource *source)
 {
   MetaEventSource *event_source = (MetaEventSource *) source;
   gboolean retval;
 
-  retval = ((event_source->event_poll_fd.revents & G_IO_IN) ||
-            clutter_events_pending ());
+  retval = !!(event_source->event_poll_fd.revents & G_IO_IN);
 
   return retval;
 }
@@ -1372,19 +1407,13 @@ meta_event_dispatch (GSource     *g_source,
 
   seat = source->seat_impl;
 
-  /* Don't queue more events if we haven't finished handling the previous batch
-   */
-  if (clutter_events_pending ())
-    goto queue_event;
-
   dispatch_libinput (seat);
-
- queue_event:
 
   return TRUE;
 }
+
 static GSourceFuncs event_funcs = {
-  meta_event_prepare,
+  NULL,
   meta_event_check,
   meta_event_dispatch,
   NULL
@@ -1411,7 +1440,7 @@ meta_event_source_new (MetaSeatImpl *seat)
   g_source_set_priority (source, CLUTTER_PRIORITY_EVENTS);
   g_source_add_poll (source, &event_source->event_poll_fd);
   g_source_set_can_recurse (source, TRUE);
-  g_source_attach (source, NULL);
+  g_source_attach (source, seat->input_context);
 
   return event_source;
 }
@@ -1467,7 +1496,7 @@ update_touch_mode (MetaSeatImpl *seat)
   if (seat->touch_mode != touch_mode)
     {
       seat->touch_mode = touch_mode;
-      g_signal_emit (seat, signals[TOUCH_MODE], 0, touch_mode);
+      emit_signal (seat, signals[TOUCH_MODE], touch_mode, 0);
     }
 }
 
@@ -2466,36 +2495,21 @@ static const struct libinput_interface libinput_interface = {
   close_restricted
 };
 
-static void
-meta_seat_impl_constructed (GObject *object)
+static gpointer
+input_thread (MetaSeatImpl *seat)
 {
-  MetaSeatImpl *seat = META_SEAT_IMPL (object);
-  ClutterInputDevice *device;
   MetaEventSource *source;
   struct udev *udev;
   struct xkb_keymap *xkb_keymap;
 
-  g_rw_lock_writer_lock (&seat->state_lock);
-
-  device = meta_input_device_native_new_virtual (
-      seat, CLUTTER_POINTER_DEVICE,
-      CLUTTER_INPUT_MODE_MASTER);
-  seat->pointer_x = INITIAL_POINTER_X;
-  seat->pointer_y = INITIAL_POINTER_Y;
-  meta_input_device_native_update_coords (META_INPUT_DEVICE_NATIVE (device),
-                                          seat->pointer_x, seat->pointer_y);
-  seat->core_pointer = device;
-
-  device = meta_input_device_native_new_virtual (
-      seat, CLUTTER_KEYBOARD_DEVICE,
-      CLUTTER_INPUT_MODE_MASTER);
-  seat->core_keyboard = device;
+  g_main_context_push_thread_default (seat->input_context);
 
   udev = udev_new ();
   if (G_UNLIKELY (udev == NULL))
     {
       g_warning ("Failed to create udev object");
-      return;
+      seat->input_thread_initialized = TRUE;
+      return NULL;
     }
 
   seat->libinput = libinput_udev_create_context (&libinput_interface,
@@ -2503,7 +2517,8 @@ meta_seat_impl_constructed (GObject *object)
   if (seat->libinput == NULL)
     {
       g_critical ("Failed to create the libinput object.");
-      return;
+      seat->input_thread_initialized = TRUE;
+      return NULL;
     }
 
   if (libinput_udev_assign_seat (seat->libinput, seat->seat_id) == -1)
@@ -2511,19 +2526,20 @@ meta_seat_impl_constructed (GObject *object)
       g_critical ("Failed to assign a seat to the libinput object.");
       libinput_unref (seat->libinput);
       seat->libinput = NULL;
-      return;
+      seat->input_thread_initialized = TRUE;
+      return NULL;
     }
 
   udev_unref (udev);
 
   seat->input_settings = meta_input_settings_native_new (seat);
 
-  seat->udev_client = g_udev_client_new ((const gchar *[]) { "input", NULL });
-
   source = meta_event_source_new (seat);
   seat->event_source = source;
 
   seat->keymap = g_object_new (META_TYPE_KEYMAP_NATIVE, NULL);
+
+  g_rw_lock_writer_lock (&seat->state_lock);
   xkb_keymap = meta_keymap_native_get_keyboard_map (seat->keymap);
 
   if (xkb_keymap)
@@ -2542,6 +2558,63 @@ meta_seat_impl_constructed (GObject *object)
 
   seat->has_touchscreen = has_touchscreen (seat);
   update_touch_mode (seat);
+
+  seat->input_thread_initialized = TRUE;
+
+  seat->input_loop = g_main_loop_new (seat->input_context, FALSE);
+  g_main_loop_run (seat->input_loop);
+  g_main_loop_unref (seat->input_loop);
+
+  g_main_context_pop_thread_default (seat->input_context);
+
+  return NULL;
+}
+
+static gboolean
+meta_seat_impl_initable_init (GInitable     *initable,
+                              GCancellable  *cancellable,
+                              GError       **error)
+{
+  MetaSeatImpl *seat = META_SEAT_IMPL (initable);
+
+  seat->input_context = g_main_context_new ();
+  seat->caller_context = g_main_context_ref_thread_default ();
+
+  seat->input_thread =
+    g_thread_try_new ("Mutter Input Thread",
+                      (GThreadFunc) input_thread,
+                      initable,
+                      error);
+  if (!seat->input_thread)
+    return FALSE;
+
+  while (!seat->input_thread_initialized)
+    g_usleep (100);
+
+  return TRUE;
+}
+
+static void
+meta_seat_impl_constructed (GObject *object)
+{
+  MetaSeatImpl *seat = META_SEAT_IMPL (object);
+  ClutterInputDevice *device;
+
+  device = meta_input_device_native_new_virtual (
+      seat, CLUTTER_POINTER_DEVICE,
+      CLUTTER_INPUT_MODE_MASTER);
+  seat->pointer_x = INITIAL_POINTER_X;
+  seat->pointer_y = INITIAL_POINTER_Y;
+  meta_input_device_native_update_coords (META_INPUT_DEVICE_NATIVE (device),
+                                          seat->pointer_x, seat->pointer_y);
+  seat->core_pointer = device;
+
+  device = meta_input_device_native_new_virtual (
+      seat, CLUTTER_KEYBOARD_DEVICE,
+      CLUTTER_INPUT_MODE_MASTER);
+  seat->core_keyboard = device;
+
+  seat->udev_client = g_udev_client_new ((const gchar *[]) { "input", NULL });
 
   if (G_OBJECT_CLASS (meta_seat_impl_parent_class)->constructed)
     G_OBJECT_CLASS (meta_seat_impl_parent_class)->constructed (object);
@@ -2608,6 +2681,9 @@ meta_seat_impl_finalize (GObject *object)
 {
   MetaSeatImpl *seat = META_SEAT_IMPL (object);
   GSList *iter;
+
+  g_main_loop_quit (seat->input_loop);
+  g_thread_join (seat->input_thread);
 
   for (iter = seat->devices; iter; iter = g_slist_next (iter))
     {
@@ -2767,6 +2843,12 @@ meta_seat_impl_query_state (MetaSeatImpl         *seat,
  out:
   g_rw_lock_reader_unlock (&seat->state_lock);
   return retval;
+}
+
+static void
+meta_seat_impl_initable_iface_init (GInitableIface *iface)
+{
+  iface->init = meta_seat_impl_initable_init;
 }
 
 static void
@@ -3304,10 +3386,11 @@ MetaSeatImpl *
 meta_seat_impl_new (MetaSeatNative *seat,
                     const gchar    *seat_id)
 {
-  return g_object_new (META_TYPE_SEAT_IMPL,
-                       "seat", seat,
-                       "seat-id", seat_id,
-                       NULL);
+  return g_initable_new (META_TYPE_SEAT_IMPL,
+                         NULL, NULL,
+                         "seat", seat,
+                         "seat-id", seat_id,
+                         NULL);
 }
 
 void
@@ -3320,8 +3403,7 @@ meta_seat_impl_notify_kbd_a11y_flags_changed (MetaSeatImpl          *impl,
   input_settings = impl->input_settings;
   meta_input_settings_notify_kbd_a11y_change (input_settings,
                                               new_flags, what_changed);
-  g_signal_emit (impl, signals[KBD_A11Y_FLAGS_CHANGED], 0,
-                 new_flags, what_changed);
+  emit_signal (impl, signals[KBD_A11Y_FLAGS_CHANGED], new_flags, what_changed);
 }
 
 void
@@ -3329,14 +3411,14 @@ meta_seat_impl_notify_kbd_a11y_mods_state_changed (MetaSeatImpl   *impl,
                                                    xkb_mod_mask_t  new_latched_mods,
                                                    xkb_mod_mask_t  new_locked_mods)
 {
-  g_signal_emit (impl, signals[KBD_A11Y_MODS_STATE_CHANGED], 0,
+  emit_signal (impl, signals[KBD_A11Y_MODS_STATE_CHANGED],
                  new_latched_mods, new_locked_mods);
 }
 
 void
 meta_seat_impl_notify_bell (MetaSeatImpl *impl)
 {
-  g_signal_emit (impl, signals[BELL], 0);
+  emit_signal (impl, signals[BELL], 0, 0);
 }
 
 MetaInputSettings *
